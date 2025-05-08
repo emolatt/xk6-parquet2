@@ -7,4 +7,3 @@ require (
 )
 
 replace go.k6.io/k6 => github.com/grafana/k6 v0.54.0
-
