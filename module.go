@@ -1,8 +1,8 @@
 package parquet
 
 import (
-	"bytes"
 	"encoding/json"
+	"strconv"
 
 	"github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go-source/buffer"
@@ -37,32 +37,30 @@ func (p *ParquetModule) Exports() modules.Exports {
 	}
 }
 
-// 📦 Uint8Array -> Go []byte -> Parquet olvasás -> JS Object
-func (p *ParquetModule) ReadParquetFromBytes(call goja.FunctionCall) goja.Value {
-	rt := call.This.Runtime()
+func (p *ParquetModule) ReadParquetFromBytes(ctxPtrPtr interface{}, args ...interface{}) interface{} {
+	modCtx := modules.GetContext(ctxPtrPtr)
+	rt := modCtx.VU.Runtime()
 
-	if len(call.Arguments) < 1 {
+	if len(args) < 1 {
 		panic(rt.NewTypeError("missing argument: Uint8Array"))
 	}
 
-	arg := call.Arguments[0]
-
-	// Ellenőrizd hogy tényleg Uint8Array
-	obj := arg.ToObject(rt)
-	if obj.ClassName() != "Uint8Array" {
+	val := args[0]
+	obj, ok := val.(*goja.Object)
+	if !ok || obj.ClassName() != "Uint8Array" {
 		panic(rt.NewTypeError("expected Uint8Array"))
 	}
 
-	length := obj.Get("length").ToInteger()
+	lengthVal := obj.Get("length")
+	length := lengthVal.ToInteger()
 	data := make([]byte, length)
 
 	for i := int64(0); i < length; i++ {
-		v := obj.Get(i)
-		data[i] = byte(v.ToInteger())
+		val := obj.Get(strconv.FormatInt(i, 10))
+		data[i] = byte(val.ToInteger())
 	}
 
-	buf := bytes.NewReader(data)
-	fr, err := buffer.NewBufferFile(buf)
+	fr, err := buffer.NewBufferFile(data)
 	if err != nil {
 		panic(rt.NewGoError(err))
 	}
@@ -88,5 +86,5 @@ func (p *ParquetModule) ReadParquetFromBytes(call goja.FunctionCall) goja.Value 
 		panic(rt.NewGoError(err))
 	}
 
-	return rt.ToValue(result)
+	return result
 }
