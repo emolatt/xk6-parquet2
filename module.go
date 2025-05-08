@@ -13,7 +13,9 @@ import (
 
 type (
 	RootModule    struct{}
-	ParquetModule struct{}
+	ParquetModule struct {
+		vu modules.VU
+	}
 )
 
 func init() {
@@ -25,7 +27,7 @@ func New() modules.Module {
 }
 
 func (r *RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
-	return &ParquetModule{}
+	return &ParquetModule{vu: vu}
 }
 
 func (p *ParquetModule) Exports() modules.Exports {
@@ -37,17 +39,15 @@ func (p *ParquetModule) Exports() modules.Exports {
 	}
 }
 
-func (p *ParquetModule) ReadParquetFromBytes(ctxPtrPtr interface{}, args ...interface{}) interface{} {
-	modCtx := modules.GetContext(ctxPtrPtr)
-	rt := modCtx.VU.Runtime()
+func (p *ParquetModule) ReadParquetFromBytes(call goja.FunctionCall) goja.Value {
+	rt := p.vu.Runtime()
 
-	if len(args) < 1 {
+	if len(call.Arguments) < 1 {
 		panic(rt.NewTypeError("missing argument: Uint8Array"))
 	}
 
-	val := args[0]
-	obj, ok := val.(*goja.Object)
-	if !ok || obj.ClassName() != "Uint8Array" {
+	obj := call.Arguments[0].ToObject(rt)
+	if obj.ClassName() != "Uint8Array" {
 		panic(rt.NewTypeError("expected Uint8Array"))
 	}
 
@@ -86,5 +86,5 @@ func (p *ParquetModule) ReadParquetFromBytes(ctxPtrPtr interface{}, args ...inte
 		panic(rt.NewGoError(err))
 	}
 
-	return result
+	return rt.ToValue(result)
 }
