@@ -3,19 +3,18 @@ package parquet
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"io"
 
-	"github.com/xitongsys/parquet-go-source/buffer"
 	"github.com/xitongsys/parquet-go/reader"
+	"github.com/xitongsys/parquet-go-source/buffer"
 
-	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/js/modules"
-	"go.k6.io/k6/experimental/js"
+	"github.com/dop251/goja"
 )
 
-type RootModule struct{}
-type ParquetModule struct{}
+type (
+	RootModule    struct{}
+	ParquetModule struct{}
+)
 
 func init() {
 	modules.Register("k6/x/parquet", New())
@@ -38,46 +37,56 @@ func (p *ParquetModule) Exports() modules.Exports {
 	}
 }
 
-// 🎯 Ez az exportált függvény JS-ből: readParquetFromBytes(Uint8Array)
-func (p *ParquetModule) ReadParquetFromBytes(data js.Value) (interface{}, error) {
-	// Típusellenőrzés
-	if data.Type() != js.TypeObject || !data.InstanceOf(js.Global().Get("Uint8Array")) {
-		return nil, errors.New("expected Uint8Array")
+// 📦 Uint8Array -> Go []byte -> Parquet olvasás -> JS Object
+func (p *ParquetModule) ReadParquetFromBytes(call goja.FunctionCall) goja.Value {
+	rt := call.This.Runtime()
+
+	if len(call.Arguments) < 1 {
+		panic(rt.NewTypeError("missing argument: Uint8Array"))
 	}
 
-	// Uint8Array -> Go []byte
-	length := data.Get("length").Int()
-	raw := make([]byte, length)
-	js.CopyBytesToGo(raw, data)
+	arg := call.Arguments[0]
 
-	// Olvasás bufferből
-	buf := bytes.NewReader(raw)
+	// Ellenőrizd hogy tényleg Uint8Array
+	obj := arg.ToObject(rt)
+	if obj.ClassName() != "Uint8Array" {
+		panic(rt.NewTypeError("expected Uint8Array"))
+	}
+
+	length := obj.Get("length").ToInteger()
+	data := make([]byte, length)
+
+	for i := int64(0); i < length; i++ {
+		v := obj.Get(i)
+		data[i] = byte(v.ToInteger())
+	}
+
+	buf := bytes.NewReader(data)
 	fr, err := buffer.NewBufferFile(buf)
 	if err != nil {
-		return nil, err
+		panic(rt.NewGoError(err))
 	}
 	pr, err := reader.NewParquetReader(fr, nil, 1)
 	if err != nil {
-		return nil, err
+		panic(rt.NewGoError(err))
 	}
 	defer pr.ReadStop()
 
 	num := int(pr.GetNumRows())
 	rows, err := pr.ReadByNumber(num)
 	if err != nil {
-		return nil, err
+		panic(rt.NewGoError(err))
 	}
 
-	// Sorokat konvertáljuk JS objektummá
-	result, err := json.Marshal(rows)
+	jsonBytes, err := json.Marshal(rows)
 	if err != nil {
-		return nil, err
+		panic(rt.NewGoError(err))
 	}
 
-	var output interface{}
-	if err := json.Unmarshal(result, &output); err != nil {
-		return nil, err
+	var result interface{}
+	if err := json.Unmarshal(jsonBytes, &result); err != nil {
+		panic(rt.NewGoError(err))
 	}
 
-	return output, nil
+	return rt.ToValue(result)
 }
